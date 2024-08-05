@@ -1,0 +1,465 @@
+---
+title: "WebToon STM"
+format: html
+editor: visual
+---
+
+## 웹툰 KCI STM
+
+```{r}
+library(tidyverse)
+library(stm)
+library(stminsights)
+library(parallel)
+library(vroom)
+library(broom)
+library(reticulate)
+library(reshape2)
+library(tidyr)
+library(cowplot)
+library(writexl)
+library(ggplot2)
+library(knitr)
+library(reshape2)
+library(gridExtra)
+py_config()
+```
+
+```{r}
+df <- data.frame(py_load_object('./240727_WebToon_tokens.pkl'))
+```
+
+```{r}
+names(df)
+```
+
+```{r}
+# 필요한 컬럼만 활용
+df <- df %>% select(논문.ID, 발행연도, 대분류, 고유.학술지명, filtered_tokens_uppercase, 대분류)
+df
+```
+
+```{r}
+# 빈도수 계산
+frequency_table <- df %>%
+  count(고유.학술지명) %>%
+  arrange(desc(n))
+# 결과 출력
+print(frequency_table)
+```
+
+```{r}
+# 상위 1, 2 빈도수 학술지명 추출
+top_journals <- frequency_table %>%
+  top_n(2, n) %>%
+  pull(고유.학술지명)
+
+# 새로운 학술지명 추가
+top_journals <- c(top_journals, "(사)한국만화웹툰학회 - 만화웹툰연구")
+
+# 'journal' 컬럼 생성 및 조건에 따라 factor 변수 지정
+df <- df %>%
+  mutate(journal = ifelse(고유.학술지명 %in% top_journals, 'specialized', 'unspecialized')) %>%
+  mutate(journal = factor(journal, levels = c('specialized', 'unspecialized')))
+```
+
+```{r}
+# 토큰 리스트->문자열 처리 (for STM)
+df$filtered_tokens_uppercase <- map_chr(df$filtered_tokens_uppercase,str_c,collapse='  ')
+```
+
+```{r}
+# 데이터프레임 수정 예시 (불필요한 행 제거)
+# df <- df %>% filter(!is.na(tokens)) # NA 값이 있는 행 제거
+```
+
+```{r}
+stopwords <- c('연구','웹툰','webtoon', 'Webtoon','WEBTOON','분석')
+```
+
+```{r}
+myprocess <- textProcessor(df$filtered_tokens_uppercase, metadata = df ,wordLengths=c(2,Inf),lowercase = F,
+                           removenumbers = F, removepunctuation = F, removestopwords = F, stem = F,customstopwords = stopwords)
+myprocess
+length(myprocess$docs.removed)
+```
+
+```{r}
+# N개 이상의 문서에서 등장한 단어만 사용(lower.thresh)
+out <- prepDocuments(myprocess$documents, myprocess$vocab, myprocess$meta,lower.thresh = 20)
+```
+
+```{r}
+model1_searchK <- searchK(out$documents, out$vocab, K = c(4:30),
+                                prevalence = ~journal+s(발행연도),
+                                data = out$meta, init.type="Spectral"
+                                  ,cores=detectCores()-1)
+saveRDS(model1_searchK,'model1_searchK.rds')
+```
+
+```{r}
+plot(model1_searchK)
+```
+
+```{r}
+model1_res <- model1_searchK$results
+model1_res <- unnest(model1_res,c(K,exclus,semcoh))
+```
+
+```{r}
+ggplot(model1_res, aes(x = semcoh, y = exclus, label = K)) +
+  geom_point() +
+  geom_text(vjust = -0.5, hjust = 0.5) +
+  labs(x = "Semantic Coherence", y = "Exclusivity", title = "Semantic Coherence vs Exclusivity") +
+  theme_minimal()
+```
+
+```{r}
+stm_model1 <- stm(out$documents, out$vocab, K=10,
+              prevalence= ~journal+s(발행연도),
+              data=out$meta, init.type="Spectral",seed=2024,
+              verbose = F)
+```
+
+```{r}
+summary(stm_model1)
+```
+
+```{r}
+labelTopics(stm_model1, n = 10)
+```
+
+```{r}
+plot(stm_model1,type='summary',labeltype = 'frex',n=10)
+```
+
+```{r}
+# STM 모델의 theta 매트릭스에서 토픽 비중 추출
+topic_matrix <- stm_model1[["theta"]]
+
+# 각 토픽의 평균 비중 계산
+average_topic_proportions <- colMeans(topic_matrix)
+
+# 데이터프레임으로 변환
+topic_proportions_df <- data.frame(
+  Topic = paste("Topic", 1:ncol(topic_matrix), sep = " "),
+  Proportion = average_topic_proportions
+)
+
+# 주요 단어 추출 (frex 기준)
+topic_labels <- labelTopics(stm_model1, n = 10)$frex
+
+# 데이터프레임에 주요 단어 추가
+topic_proportions_df <- topic_proportions_df %>%
+  mutate(Frex_Top_Words = apply(topic_labels, 1, paste, collapse = ", "))
+
+# CSV 파일로 저장
+write.csv(topic_proportions_df, "topic_proportions.csv", row.names = FALSE)
+```
+
+```{r}
+m1_K <- stm_model1$settings$dim$K
+stm_effect_model <-  estimateEffect(1:m1_K ~journal+s(발행연도),
+                                 stm_model1, meta = out$meta, uncertainty = "Global",prior=1e-5)
+```
+
+### 문서별 토픽 분포
+
+```{r}
+# topic_document <- data.frame(stm_model1[["theta"]])
+# topic_document$category <- out$meta$origin
+# topic_document$year <- out$meta$publication_year
+# topic_document$id <- out$meta$id
+# names(topic_document) <- c("topic1", "topic2", "topic3", "topic4", "topic5", "topic6", "topic7", "topic8", "topic9", "topic10", "topic11", "topic12","topic13","origin", "publication_year",'id')
+# 토픽 모델의 토픽 분포(theta)로부터 데이터 프레임 생성
+topic_document <- data.frame(stm_model1[["theta"]])
+# 추가 메타 데이터 컬럼 할당
+topic_document$category <- out$meta$journal
+topic_document$year <- out$meta$발행연도
+topic_document$id <- out$meta$논문.ID
+topic_document$class <- out$meta$대분류
+
+# 토픽 개수를 기반으로 이름 생성
+num_topics <- ncol(stm_model1[["theta"]])  # 토픽 모델의 토픽 개수
+topic_names <- paste("topic", 1:num_topics, sep = "")  # 토픽 이름 생성
+
+# 새로운 컬럼 이름 설정
+names(topic_document) <- c(topic_names, "journal", "발행연도", "논문.ID","대분류" )
+```
+
+```{r}
+topic_document_long <-  
+topic_document %>%
+  pivot_longer(
+    cols = starts_with("topic"),
+    names_to = "topic",
+    values_to = "distribution"
+  ) %>% 
+  mutate(
+    topic = factor(topic, levels = paste0("topic", 1:m1_K))
+  )
+```
+
+```{r}
+# Boxplot 시각화: 학문 분류별로 토픽의 분포 표시
+ggplot(topic_document_long, aes(x = topic, y = distribution, fill = journal)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Topic Distribution by Journal Publication Location", x = "Topic", y = "Distribution") +
+  facet_wrap(~journal, scales = "free")
+```
+
+```{r}
+ggplot(topic_document_long, aes(x = topic, y = distribution, fill = 대분류)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Topic Distribution by Journal Publication Location", x = "Topic", y = "Distribution") +
+  facet_wrap(~대분류, scales = "free")
+```
+
+```{r}
+# 토픽 개수를 기반으로 이름 생성
+num_topics <- ncol(stm_model1[["theta"]])
+topic_names <- paste("topic", 1:num_topics, sep = "")
+
+# 새로운 컬럼 이름 설정
+names(topic_document) <- c(topic_names, "journal", "발행연도", "논문.ID", "대분류")
+
+# '의약학'과 '자연과학' 제외
+filtered_topic_document <- topic_document %>%
+  filter(!(대분류 %in% c("의약학", "자연과학")))
+
+# 데이터 변환: 긴 형식으로 변환
+long_topic_document <- filtered_topic_document %>%
+  gather(key = "topic", value = "distribution", starts_with("topic"))
+
+# 각 대분류별로 토픽 비율 계산
+topic_summary <- long_topic_document %>%
+  group_by(대분류, topic) %>%
+  summarize(mean_distribution = mean(distribution, na.rm = TRUE))
+
+# 토픽 이름을 정렬된 factor로 변환
+topic_summary$topic <- factor(topic_summary$topic, levels = paste("topic", 1:num_topics, sep = ""))
+
+# 시각화
+ggplot(topic_summary, aes(x = topic, y = mean_distribution, fill = 대분류)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "대분류에 따른 토픽 비율 차이 (의약학 및 자연과학 제외)",
+       x = "토픽",
+       y = "평균 비율",
+       fill = "대분류") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# '의약학'과 '자연과학' 제외
+filtered_document <- topic_document %>%
+  filter(!(대분류 %in% c("의약학", "자연과학")))
+
+# 시기별 분류 추가
+filtered_document <- filtered_document %>%
+  mutate(time_period = case_when(
+    발행연도 >= 2003 & 발행연도 <= 2010 ~ "Period 1: 2003-2010",
+    발행연도 >= 2011 & 발행연도 <= 2013 ~ "Period 2: 2011-2013",
+    발행연도 >= 2014 & 발행연도 <= 2021 ~ "Period 3: 2014-2021",
+    발행연도 >= 2022 & 발행연도 <= 2023 ~ "Period 4: 2022-2023",
+    TRUE ~ NA_character_
+  ))
+
+# 데이터 변환: 긴 형식으로 변환
+long_document <- filtered_document %>%
+  gather(key = "topic", value = "distribution", starts_with("topic"))
+
+# 각 시기별로 토픽 비율 계산
+summary_by_period <- long_document %>%
+  group_by(time_period, topic) %>%
+  summarize(mean_distribution = mean(distribution, na.rm = TRUE))
+
+# 토픽 이름을 정렬된 factor로 변환
+summary_by_period$topic <- factor(summary_by_period$topic, levels = paste("topic", 1:num_topics, sep = ""))
+
+# 시각화
+ggplot(summary_by_period, aes(x = topic, y = mean_distribution, fill = time_period)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "시기별 토픽 비율 차이",
+       x = "토픽",
+       y = "평균 비율",
+       fill = "시기") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 시각화 (facet_wrap 사용)
+ggplot(summary_by_period, aes(x = time_period, y = mean_distribution)) +
+  geom_line(aes(group = topic, color = topic)) +
+  geom_point(aes(color = topic)) +
+  labs(title = "시기별 토픽 비중 변화",
+       x = "시기",
+       y = "평균 비중",
+       color = "토픽") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~ topic, scales = "free_y", ncol = 3)
+```
+
+```{r}
+# ggplot 그래프 생성 및 저장을 위한 변수에 할당
+p <- ggplot(topic_document_long, aes(x = topic, y = distribution, fill = journal)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Topic Distribution by Journal Publication Location", x = "Topic", y = "Distribution") +
+  facet_wrap(~journal, scales = "free")
+
+# 고화질로 그래프 저장
+ggsave(filename = "Topic Distribution.png", plot = p, device = "png", width = 12, height = 8, dpi = 300)
+```
+
+```{r}
+# 필요한 패키지 로드
+library(tidyverse)
+library(reshape2)
+
+# 데이터 준비 및 필터링
+topic_document <- data.frame(stm_model1[["theta"]])
+topic_document$category <- out$meta$journal
+topic_document$year <- out$meta$발행연도
+topic_document$id <- out$meta$논문.ID
+topic_document$class <- out$meta$대분류
+
+# 토픽 개수를 기반으로 이름 생성
+num_topics <- ncol(stm_model1[["theta"]])
+topic_names <- paste("topic", 1:num_topics, sep = "")
+
+# 새로운 컬럼 이름 설정
+names(topic_document) <- c(topic_names, "journal", "발행연도", "논문.ID", "대분류")
+
+# '의약학'과 '자연과학' 제외
+filtered_topic_document <- topic_document %>%
+  filter(!(대분류 %in% c("의약학", "자연과학")))
+
+# 시기별 분류 추가
+filtered_topic_document <- filtered_topic_document %>%
+  mutate(time_period = case_when(
+    발행연도 >= 2003 & 발행연도 <= 2010 ~ "Period 1: 2003-2010",
+    발행연도 >= 2011 & 발행연도 <= 2013 ~ "Period 2: 2011-2013",
+    발행연도 >= 2014 & 발행연도 <= 2021 ~ "Period 3: 2014-2021",
+    발행연도 >= 2022 & 발행연도 <= 2023 ~ "Period 4: 2022-2023",
+    TRUE ~ NA_character_
+  ))
+
+# 데이터 변환: 긴 형식으로 변환
+long_topic_document <- filtered_topic_document %>%
+  gather(key = "topic", value = "distribution", starts_with("topic"))
+
+# 각 대분류와 시기별로 토픽 비율 계산
+summary_by_class_and_period <- long_topic_document %>%
+  group_by(topic, 대분류, time_period) %>%
+  summarize(mean_distribution = mean(distribution, na.rm = TRUE))
+
+# 토픽 이름을 정렬된 factor로 변환
+summary_by_class_and_period$topic <- factor(summary_by_class_and_period$topic, levels = paste("topic", 1:num_topics, sep = ""))
+
+# "plots" 폴더가 없으면 생성
+if (!dir.exists("plots")) {
+  dir.create("plots")
+}
+
+# 각 토픽별로 그래프를 생성하고 저장
+for (topic in levels(summary_by_class_and_period$topic)) {
+  plot <- ggplot(filter(summary_by_class_and_period, topic == !!topic), 
+                 aes(x = time_period, y = mean_distribution, group = 대분류, color = 대분류)) +
+    geom_line() +
+    geom_point() +
+    labs(title = paste("토픽", topic, "대분류별 시기별 토픽 비중 변화"),
+         x = "시기",
+         y = "평균 비중",
+         color = "대분류") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  ggsave(filename = paste0("plots/topic_", topic, "_trend.png"), plot = plot, width = 10, height = 8, dpi = 300)
+}
+
+```
+
+### 효과추정
+
+```{r}
+summary(stm_effect_model, topics= 1:m1_K)
+```
+
+```{r}
+plot.estimateEffect(stm_effect_model, covariate = "journal", 
+                    topics = c(1:m1_K), method = "difference",
+                    model = stm_model1, # to show labels alongside
+                    cov.value1 = "unspecialized", cov.value2 = "specialized",
+                    xlab = "specialized <------------------------> unspecialized", xlim = c(-.4, .4),
+                    labeltype = "frex", n = 5, 
+                    width = 100,  verbose.labels = F)
+```
+
+### 시계열 토픽
+
+```{r}
+# 시계열 시각화(모든 토픽)
+plot.estimateEffect(stm_effect_model,model=stm, covariate = "발행연도", 
+                    topics = c(1:m1_K), method = "continuous")
+```
+
+```{r}
+# 발행연도 2010년부터 필터링
+filtered_data <- topic_document_long %>%
+  filter(발행연도 >= 2010)
+
+# 연도별 토픽 분포 시각화
+ggplot(filtered_data, aes(x = 발행연도, y = distribution, color = topic)) +
+  geom_line(stat = "summary", fun = mean) +
+  labs(title = "연도별 토픽 분포 변화 (2010년부터)",
+       x = "발행연도",
+       y = "토픽 분포 (평균)",
+       color = "토픽") +
+  theme_minimal()
+```
+
+```{r}
+# 연도별 토픽 분포 시각화 (Faceting)
+ggplot(filtered_data, aes(x = 발행연도, y = distribution)) +
+  geom_line(aes(color = topic), stat = "summary", fun = mean) +
+  labs(title = "연도별 토픽 분포 변화 (2010년부터)",
+       x = "발행연도",
+       y = "토픽 분포 (평균)",
+       color = "토픽") +
+  theme_minimal() +
+  facet_wrap(~ topic, scales = "free_y", ncol = 3) +
+  theme(legend.position = "none")
+```
+
+```{r}
+#### 시간에 따른 토픽 비율 변화 (토픽별로)
+stm_label<- labelTopics(stm_model1, n = 10)
+# stm_custom_label <- c('접종순서','거리두기 단계','국내 감염 상황','생활/문화/교육','관련연구/기술',
+#                                       '지원정책','관련주','백신 승인','미국 대선','경제 전망','정부/청와대',
+#                                       '해외 감염 상황','접종후속대책','변이 바이러스','국제협력','증상/전파','백신/치료제 개발','부작용')
+
+par(mfrow=c(3,3))
+j <- 1
+for (i in c(1:m1_K))
+{
+  plot(stm_effect_model, "발행연도", method = "continuous", topics = i, printlegend = F,
+  # main = stm_custom_label[j], xaxt = "n")
+  #main = paste(paste0('T', i,':'),paste(stm_custom_label[i], collapse = ", "),sep=' '),
+  #xaxt ="n")
+  
+  # 토픽 이름대신 keyword로 표현하고 싶으면 아래 main 활용 
+  main =  paste('topic', i,paste(stm_label$frex[i,1:4], collapse = ", "),sep=' '))
+  
+  yearseq <- seq(from=as.Date('2003-01-01'), to=as.Date('2023-12-31'),by='year')
+yearnames <- year(yearseq)
+axis(1,at=as.numeric(yearseq) - min(as.numeric(yearseq)),labels=yearnames)
+  
+  j <- j+1
+
+}
+```
