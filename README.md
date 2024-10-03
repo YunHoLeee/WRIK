@@ -20,6 +20,7 @@
 > 초록에만 키워드를 포함하는 경우 연구 배경 및 의의에 ‘웹툰’을 단순히 언급하였을 뿐 연구 내용 상으로는 웹툰과 관련이 없는 경우가 많았는데, 이를 본 연구의 취지와 연구방법론을 고려했을 때 데이터에 포함하는 것은 부적절하다고 판단하였음.
 선별된 논문 90건은 웹툰 산업 및 웹툰을 고려하고 계기로 삼아 진행된 공학적 정책적 연구, 웹툰 원작의 2차 저작물을 다루되 트랜스미디어적 성격에 주목하여 웹툰 원작과의 비교가 이루어진 연구, 혹은 핵심 '변인'으로 웹툰을 삼는 사회과학 연구 등임. 선별 전 데이터는 파일 참조.
 
-[서지정보 스프레드시트](https://docs.google.com/spreadsheets/d/1zSQmuXPDgIP8dNm2F6_x3AtksZY_SFJlrrsa4rAMSuo/edit?usp=sharing)
+**서지정보 스프레드 시트** : [스프레드시트 바로가기](https://docs.google.com/spreadsheets/d/1zSQmuXPDgIP8dNm2F6_x3AtksZY_SFJlrrsa4rAMSuo/edit?usp=sharing)
+  * 스프레드시트 데이터에 대해서는 댓글을 통해 수정 의견을 제시할 수 있습니다.
 
 
