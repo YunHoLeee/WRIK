@@ -1,7 +1,9 @@
 # **W**ebtoon-related **R**esearch **I**n the **K**orean academic field (WRIK)
 
 ## Ⅰ. 소개
-이 페이지는 한국 학술장 내 웹툰 관련 연구의 확장과 분화를 추적한 아래 논문의 데이터와 코드를 공유하기 위해 만들어졌습니다.
+이 페이지는 한국 학술장 내 웹툰 관련 연구의 확장과 분화를 추적한 아래 논문의 데이터와 코드를 공유하기 위해 만들어졌습니다. 
+
+(아직 100% 완성되진 않았으니 필요한 데이터 등이 있으실 경우 이메일로 문의주시기 바랍니다)
 
 [한국 학술장 내 웹툰 관련 연구의 확장과 분화 : KCI 논문 서지 데이터 기반 구조적 토픽 모델링 분석, 2003∼2023(애니메이션연구 71호, 2024)](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART003123833)
 
