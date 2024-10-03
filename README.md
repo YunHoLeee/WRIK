@@ -1,11 +1,13 @@
-# Manhwa_Research_In_Korea
-Manhwa_Research_In_Korea
+# The Expansion and Diversification of Webtoon-Related Research in the Korean Academic Field
+## A Structural Topic Modeling Based on KCI Paper Bibliographic Data from 2003 to 2023
+
+
 ## 연구소개
 이 연구는 한국 학술장 내 웹툰 연구의 변화을 조명하는 연구입니다.  
 이 연구는 KCI에서 제공하는 논문 서지정보 데이터를 기반으로 진행되었습니다.
 > 주제어를 포함하는 논문 서지정보를 확보한 후 선별작업을 진행하였습니다.
 - 주제어 : 웹툰, webtoon, 웹만화, 디지털만화, 웹코믹스, 인터넷만화, 온라인만화 
-
+---
 ## 자료수집 및 선별
 ### 서지정보 고급검색 방식 및 쿼리
 수집 대상 : KCI 등재 학술논문 중 '웹툰'과 관련된 논문, 즉 주제어를 포함한 논문
